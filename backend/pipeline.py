@@ -8,6 +8,7 @@ from modules.severity_score import score_findings
 from modules.alert_system import trigger_critical_alerts
 from database import get_connection, init_db
 from datetime import datetime, timezone
+from modules.canary import check_canaries_in_findings
 DEBUG_PII = os.getenv("DEBUG_PII", "1") == "1"
 
 
@@ -116,6 +117,12 @@ def run_pipeline():
         print(f"  PII Types : {', '.join(score_result['pii_types'])}")
         print(f"  Score     : {score_result['score']}/10")
         print(f"  Findings  : {len(findings)}\n")
+
+        # Step 6 — check if any canaries were triggered
+    print("[CANARY CHECK] Running canary cross-check...")
+    check_canaries_in_findings()
+
+    print(f"== Pipeline complete: {total_findings} total findings ==\n")
 
     print(f"== Pipeline complete: {total_findings} total findings ==\n")
 
