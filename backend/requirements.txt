@@ -1,0 +1,7 @@
+cd C:\Users\saaji\pii-leak-detector
+venv\Scripts\activate
+cd backend
+pip freeze > requirements.txt
+git add requirements.txt README.md
+git commit -m "add requirements and README"
+git push
