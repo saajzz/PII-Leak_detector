@@ -1,6 +1,7 @@
 import os
 import re
 from datetime import datetime, timezone
+from modules.telegram_scraper import scrape_telegram
 
 import requests
 from dotenv import load_dotenv
@@ -23,42 +24,70 @@ if GITHUB_TOKEN:
     GITHUB_HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
 DEBUG_PII = os.getenv("DEBUG_PII", "1") == "1"
 
+PASTEBIN_KEYWORDS = [
+    "aadhaar", "aadhar", "pan card", "pancard", "india leak",
+    "upi", "ifsc", "mobile number india", "data breach india"
+]
+
 def scrape_pastebin():
     results = []
 
+    pastebin_enabled = os.getenv("PASTEBIN_ENABLED", "false").lower() == "true"
+    if not pastebin_enabled:
+        print("[Pastebin] Disabled — set PASTEBIN_ENABLED=true in .env when Pro is active")
+        return results
+
     try:
-        # get recent public pastes
         response = requests.get(
-            "https://scrape.pastebin.com/api_scraping.php?limit=20",
+            "https://scrape.pastebin.com/api_scraping.php?limit=250",
             headers=BASE_HEADERS,
-            timeout=10
+            timeout=15
         )
 
-        if response.status_code != 200:
+        if response.status_code == 403:
+            print("[Pastebin] 403 — IP not whitelisted yet. Whitelist at pastebin.com/doc_scraping_api")
+            return results
+        elif response.status_code != 200:
             print(f"[Pastebin] Failed: HTTP {response.status_code}")
             return results
 
         pastes = response.json()
+        print(f"[Pastebin] Got {len(pastes)} pastes, filtering by keywords...")
 
         for paste in pastes:
-            paste_key = paste.get("key")
-            paste_url = f"https://pastebin.com/{paste_key}"
+            paste_key  = paste.get("key", "")
+            paste_title = (paste.get("title") or "").lower()
+            paste_url  = f"https://pastebin.com/{paste_key}"
+
+            # keyword filter on title first (cheap)
+            title_match = any(kw in paste_title for kw in PASTEBIN_KEYWORDS)
 
             # fetch raw content
             raw = requests.get(
-                f"https://pastebin.com/raw/{paste_key}",
+                f"https://scrape.pastebin.com/api_scrape_item.php?i={paste_key}",
                 headers=BASE_HEADERS,
                 timeout=10
             )
 
-            if raw.status_code == 200:
-                results.append({
-                    "url":         paste_url,
-                    "source_type": "pastebin",
-                    "content":     raw.text,
-                    "fetched_at":  datetime.now(timezone.utc).isoformat()
-                })
-                print(f"[Pastebin] Fetched: {paste_url}")
+            if raw.status_code != 200:
+                continue
+
+            content = raw.text
+
+            # keyword filter on content too
+            content_lower = content.lower()
+            content_match = any(kw in content_lower for kw in PASTEBIN_KEYWORDS)
+
+            if not title_match and not content_match:
+                continue  # skip irrelevant pastes
+
+            results.append({
+                "url":         paste_url,
+                "source_type": "pastebin",
+                "content":     content,
+                "fetched_at":  datetime.now(timezone.utc).isoformat()
+            })
+            print(f"[Pastebin] Matched: {paste_url} | title='{paste.get('title')}'")
 
     except Exception as e:
         print(f"[Pastebin] Error: {e}")
@@ -237,6 +266,7 @@ def run_scraper():
     all_results.extend(scrape_pastebin())
     all_results.extend(scrape_controlc())
     all_results.extend(scrape_paste_fo())
+    all_results.extend(scrape_telegram())
     print(f"-- Done: {len(all_results)} sources fetched --\n")
     return all_results
 
